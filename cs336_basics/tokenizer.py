@@ -122,40 +122,41 @@ class Tokenizer:
         special_tokens = self.special_tokens
         if special_tokens is None:
             special_tokens = []
+
         it = iter(iterable)
         first = next(it, None)
-        if first is None:
-            return
-
-        if special_tokens:
-            first_list = regex.split("(" + "|".join(map(regex.escape, special_tokens)) + ")", first)
-        else:
-            first_list = [first]
-        # we want to check the last element of first_list
-        if first_list[-1] in special_tokens:
-            # last chunk ends on a special token — safe to encode everything and continue
-            yield from self._encode_split_text(first_list, special_tokens)
-            yield from self.encode_iterable(it)
-        else:
-            if len(first_list) > 1:
-                yield from self._encode_split_text(first_list[:-1], special_tokens)
-            # the last element has no special token; may be a partial pre-token
-            first = first_list[-1]
-            pre_token_list = [match.group(0) for match in regex.finditer(PRE_TOKEN_REGEX, first)]
-            if not pre_token_list:
-                # no pre-tokens at all (e.g. empty string), just continue
-                yield from self.encode_iterable(it)
-                return
-            # encode all but the last pre-token (it may be incomplete)
-            for pre_token in pre_token_list[:-1]:
-                yield from self._encode_pre_token(pre_token)
-            second = next(it, None)
-            if second is None:
-                # no more chunks — the last pre-token is complete
-                yield from self._encode_pre_token(pre_token_list[-1])
+            
+        while first is not None:    
+            if special_tokens:
+                first_list = regex.split("(" + "|".join(map(regex.escape, special_tokens)) + ")", first)
             else:
-                yield from self.encode_iterable(itertools.chain([pre_token_list[-1] + second], it))
-
+                first_list = [first]
+            # we want to check the last element of first_list
+            if first_list[-1] in special_tokens:
+                # last chunk ends on a special token — safe to encode everything and continue
+                yield from self._encode_split_text(first_list, special_tokens)
+                first = next(it, None)
+            else:
+                if len(first_list) > 1:
+                    yield from self._encode_split_text(first_list[:-1], special_tokens)
+                # the last element has no special token; may be a partial pre-token
+                first = first_list[-1]
+                pre_token_list = [match.group(0) for match in regex.finditer(PRE_TOKEN_REGEX, first)]
+                if not pre_token_list:
+                    # no pre-tokens at all; continue to next
+                    first = next(it, None)
+                    continue
+                # encode all but the last pre-token
+                for pre_token in pre_token_list[:-1]:
+                    yield from self._encode_pre_token(pre_token)
+                second = next(it, None)
+                if second is None:
+                    # no more text; encode the last pre-token as is
+                    yield from self._encode_pre_token(pre_token_list[-1])
+                    return 
+                else:
+                    # merge the last pre-token with the second text
+                    first = pre_token_list[-1] + second
 
     @staticmethod
     def _pre_tokenize(corpus: str, special_tokens: list[str]) -> dict[tuple[int, ...], int]:
