@@ -64,7 +64,13 @@ class Tokenizer:
         self.special_tokens = special_tokens
         # construct the reverse mapping
         self.vocab_bytes_to_id = {v: k for k, v in vocab.items()}
-        self.merge_set = set(merges)
+        self.merge_priority_dict = {}
+        for priority, merge in enumerate(self.merges):
+            self.merge_priority_dict[merge] = priority
+
+    def decode(self, ids: list[int]) -> str:
+        text_bytes = b"".join(self.vocab[id] for id in ids)
+        return text_bytes.decode("utf-8", "replace")
 
     def _encode_pre_token(self, pre_token: str) -> list[int]:
         pre_token_bytes = pre_token.encode("utf-8")
@@ -72,21 +78,19 @@ class Tokenizer:
         pre_token_bytes_list = [bytes([b]) for b in pre_token_bytes]
         while True:
             # go through the pre_token_bytes_list until we find a merging pair
-            merged = False
-            pre_token_bytes_list_new = []
+            best_merge_idx = None
+            best_merge_priority = None
             for i in range(len(pre_token_bytes_list) - 1):
                 bytes_pair = (pre_token_bytes_list[i], pre_token_bytes_list[i + 1])
-                if bytes_pair in self.merge_set:
+                if bytes_pair in self.merge_priority_dict:
                     # merge the pair
-                    merged = True
-                    pre_token_bytes_list_new.append(bytes_pair[0] + bytes_pair[1])
-                    for j in range(i+2, len(pre_token_bytes_list)):
-                        pre_token_bytes_list_new.append(pre_token_bytes_list[j])
-                    break
-                else:
-                    pre_token_bytes_list_new.append(pre_token_bytes_list[i])
-            if not merged:
+                    merge_priority = self.merge_priority_dict[bytes_pair]
+                    if best_merge_priority is None or merge_priority < best_merge_priority:
+                        best_merge_priority = merge_priority
+                        best_merge_idx = i
+            if best_merge_idx is None:
                 break
+            pre_token_bytes_list_new = pre_token_bytes_list[:best_merge_idx] + [pre_token_bytes_list[best_merge_idx] + pre_token_bytes_list[best_merge_idx + 1]] + pre_token_bytes_list[best_merge_idx + 2:]
             pre_token_bytes_list = pre_token_bytes_list_new
         for pre_token_bytes in pre_token_bytes_list:
             token_ids.append(self.vocab_bytes_to_id[pre_token_bytes])
